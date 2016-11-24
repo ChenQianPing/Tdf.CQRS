@@ -90,6 +90,47 @@ namespace Tdf.Act.Commands.Executors
 ## (3) Command Bus
 用于执行Command的是CommandExecutor，但CommandExecutor却并不用来在UI层调用，UI层中只会用到Command对象和即将提到的Command Bus。Command Bus的作用是将一个Command派发给相应的CommandExecutor去执行。在开发UI层时，我们不需要关心Command会被哪个Executor执行了，而只要知道，上帝赐予了我们一个CommandBus，我们只要创建好Command对象，扔给它，神奇的CommandBus就会帮我们把它执行完。这样一来，对于UI层的开发来说，所涉及的概念很简单，涉及的类也少，大部分的工作都是得到表单中的输入，封装成Command对象，扔给CommandBus。
 
+CommandBus的实现也很简单。首先，我们需要让CommandExecutor都实现一个泛型接口：
+```
+namespace Tdf.CQRS.Commanding
+{
+    public interface ICommandBus
+    {
+        void Send<TCommand>(TCommand cmd) where TCommand : ICommand;
+    }
+}
+```
+其中ICommand是一个空接口，没有任何方法（即Marker Interface），它的作用是实现编译时约束，这样我们可以限制传入CommandExecutor的都是Command对象，而不是不小心传错的User对象（所有的Command对象都必须实现ICommand接口）。
+然后，把CommandBus写成这样：
+```
+using Tdf.CQRS.Dependency;
+using Tdf.CQRS.Domain.Uow;
+
+namespace Tdf.CQRS.Commanding
+{
+    public class DefaultCommandBus : ICommandBus
+    {
+        public void Send<TCommand>(TCommand cmd) where TCommand : ICommand
+        {
+            try
+            {
+                var unitOfWork = UnitOfWorkContext.StartUnitOfWork();
+
+                var executor = ObjectContainer.Resolve<ICommandExecutor<TCommand>>();
+                executor.Execute(cmd);
+
+                UnitOfWorkContext.Commit();
+            }
+            finally
+            {
+                UnitOfWorkContext.Close();
+            }
+        }
+    }
+}
+```
+在这个Send方法中，我们通过反射获取到泛型参数为传入的Command对象的具体类型的Executor类，再调用其Execute方法即可。实际实现中我们可以通过IoC框架来简化这个过程，另外也可以做一些改进，例如将CommandBus设计为扩展点之一。另外我们还可以将UnitOfWork（相当于平常的EntityFramework中的IDbContext，Linq 2 SQL中的DataContext）的生命周期在CommandBus中进行控制。
+
 这样我们就完成了CQRS中Command的一个基本实现。
 
 
